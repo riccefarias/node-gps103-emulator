@@ -16,4 +16,4 @@ RUN npm install
 COPY . .
 
 EXPOSE 8080
-CMD [ "node", "tk_sogil.js" ]
+CMD [ "node", "tk_bot.js" ]
