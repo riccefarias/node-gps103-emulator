@@ -17,7 +17,7 @@ Aguarde a conclusão da Build
 
 Para iniciar um emulador execute o seguinte comando:
 ````
-docker run -e linha=XXXX -e ip=IPDOSERVIDOR -e port=5001 emulador-103
+docker run -it -e linha=XXXX -e ip=IPDOSERVIDOR -e port=5001 emulador-103
 ````
 
 O imei do dispositivo será: KOREXXXX
