@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPS103 Dashboard</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="/socket.io/socket.io.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+</head>
+<body class="bg-gray-100">
+    <div id="app" class="container mx-auto px-4 py-8">
+        <h1 class="text-3xl font-bold mb-8">GPS103 Dashboard</h1>
+        
+        <!-- Formulário de Novo Emulador -->
+        <div class="bg-white rounded-lg shadow-md p-6 mb-8">
+            <h2 class="text-xl font-semibold mb-4">Novo Emulador</h2>
+            <form @submit.prevent="createEmulator" class="space-y-4">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">IMEI</label>
+                        <input v-model="newEmulator.imei" type="text" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">IP</label>
+                        <input v-model="newEmulator.ip" type="text" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Porta</label>
+                        <input v-model="newEmulator.port" type="number" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                    <div class="flex items-center">
+                        <input type="checkbox" v-model="newEmulator.autoRestart" class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded">
+                        <label class="ml-2 block text-sm text-gray-900">Auto Restart</label>
+                    </div>
+                    <div v-if="newEmulator.autoRestart">
+                        <label class="block text-sm font-medium text-gray-700">Delay do Restart (ms)</label>
+                        <input v-model="newEmulator.restartDelay" type="number" min="1000" step="1000" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500">
+                    </div>
+                </div>
+
+                <!-- Seleção de Pontos no Mapa -->
+                <div class="mt-4">
+                    <h3 class="text-lg font-medium mb-2">Selecione os pontos no mapa:</h3>
+                    <div class="flex space-x-4 mb-2">
+                        <button 
+                            type="button" 
+                            @click="setSelectionMode('start')"
+                            :class="{'bg-blue-500': selectionMode === 'start', 'bg-gray-300': selectionMode !== 'start'}"
+                            class="px-4 py-2 rounded text-white">
+                            Ponto de Partida
+                        </button>
+                        <button 
+                            type="button" 
+                            @click="setSelectionMode('end')"
+                            :class="{'bg-blue-500': selectionMode === 'end', 'bg-gray-300': selectionMode !== 'end'}"
+                            class="px-4 py-2 rounded text-white">
+                            Ponto de Destino
+                        </button>
+                    </div>
+                    <div id="map" class="h-64 rounded-lg"></div>
+                    <div class="mt-2 text-sm text-gray-600">
+                        <p v-if="newEmulator.startPoint">Ponto de Partida: {{ newEmulator.startPoint.lat.toFixed(6) }}, {{ newEmulator.startPoint.lng.toFixed(6) }}</p>
+                        <p v-if="newEmulator.endPoint">Ponto de Destino: {{ newEmulator.endPoint.lat.toFixed(6) }}, {{ newEmulator.endPoint.lng.toFixed(6) }}</p>
+                    </div>
+                </div>
+
+                <button type="submit" :disabled="isCreating || !newEmulator.startPoint || !newEmulator.endPoint" 
+                    class="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed">
+                    {{ isCreating ? 'Criando...' : 'Criar Emulador' }}
+                </button>
+                <p v-if="error" class="text-red-500 mt-2">{{ error }}</p>
+            </form>
+        </div>
+
+        <!-- Lista de Emuladores -->
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-xl font-semibold">Emuladores Ativos</h2>
+                <div class="flex items-center space-x-2">
+                    <span v-if="isConnected" class="text-green-500 flex items-center">
+                        <span class="w-2 h-2 bg-green-500 rounded-full mr-2"></span>
+                        Conectado
+                    </span>
+                    <span v-else class="text-red-500 flex items-center">
+                        <span class="w-2 h-2 bg-red-500 rounded-full mr-2"></span>
+                        Desconectado
+                    </span>
+                </div>
+            </div>
+            <div class="space-y-4">
+                <div v-for="emulator in emulators" :key="emulator.id" class="border rounded-lg p-4">
+                    <div class="flex justify-between items-center">
+                        <div>
+                            <h3 class="font-medium">IMEI: {{ emulator.config.imei }}</h3>
+                            <p class="text-sm text-gray-600">{{ emulator.config.ip }}:{{ emulator.config.port }}</p>
+                        </div>
+                        <div class="space-x-2">
+                            <button 
+                                @click="stopEmulator(emulator.id)" 
+                                :disabled="emulator.status === 'stopped'"
+                                class="bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed">
+                                {{ emulator.status === 'stopped' ? 'Parado' : 'Parar' }}
+                            </button>
+                            <button 
+                                @click="restartEmulator(emulator.id)" 
+                                :disabled="emulator.status === 'running'"
+                                class="bg-yellow-500 text-white px-3 py-1 rounded hover:bg-yellow-600 disabled:opacity-50 disabled:cursor-not-allowed">
+                                Reiniciar
+                            </button>
+                        </div>
+                    </div>
+                    <div class="mt-2 flex items-center space-x-2">
+                        <span :class="{
+                            'bg-green-100 text-green-800': emulator.status === 'running',
+                            'bg-red-100 text-red-800': emulator.status === 'stopped',
+                            'bg-yellow-100 text-yellow-800': emulator.status === 'error',
+                            'bg-blue-100 text-blue-800': emulator.status === 'restarting'
+                        }" class="px-2 py-1 rounded-full text-xs">
+                            {{ emulator.status }}
+                        </span>
+                        <button @click="toggleAutoRestart(emulator.id)" 
+                            :class="{
+                                'bg-green-500': emulator.config.autoRestart,
+                                'bg-gray-500': !emulator.config.autoRestart
+                            }" 
+                            class="px-2 py-1 rounded-full text-xs text-white">
+                            {{ emulator.config.autoRestart ? 'Auto Restart ON' : 'Auto Restart OFF' }}
+                        </button>
+                        <button @click="emulator.showLogs = !emulator.showLogs" class="text-sm text-blue-500 hover:text-blue-600">
+                            {{ emulator.showLogs ? 'Ocultar Logs' : 'Mostrar Logs' }}
+                        </button>
+                    </div>
+                    <!-- Mapa do Emulador -->
+                    <div v-if="emulator.status === 'running'" class="mt-4">
+                        <div :id="'map-' + emulator.id" class="h-48 rounded-lg"></div>
+                    </div>
+                    <!-- Logs -->
+                    <div v-if="emulator.showLogs" class="mt-4 bg-gray-50 rounded p-3 max-h-40 overflow-y-auto">
+                        <div v-for="(log, index) in emulator.logs" :key="index" class="text-sm">
+                            <span class="text-gray-500">{{ new Date(log.timestamp).toLocaleTimeString() }}</span>
+                            <span :class="{'text-red-600': log.type === 'error'}" class="ml-2">{{ log.message }}</span>
+                        </div>
+                    </div>
+                </div>
+                <div v-if="emulators.length === 0" class="text-center text-gray-500 py-4">
+                    Nenhum emulador ativo
+                </div>
+            </div>
+        </div>
+
+        <!-- Toast Notifications -->
+        <div class="fixed bottom-4 right-4 space-y-2">
+            <div v-for="notification in notifications" :key="notification.id"
+                class="bg-white shadow-lg rounded-lg p-4 max-w-sm"
+                :class="{
+                    'border-l-4 border-red-500': notification.type === 'error',
+                    'border-l-4 border-green-500': notification.type === 'success',
+                    'border-l-4 border-blue-500': notification.type === 'info'
+                }">
+                <div class="flex items-start">
+                    <div class="ml-3 w-0 flex-1">
+                        <p class="text-sm font-medium text-gray-900">
+                            {{ notification.title }}
+                        </p>
+                        <p class="mt-1 text-sm text-gray-500">
+                            {{ notification.message }}
+                        </p>
+                    </div>
+                    <div class="ml-4 flex-shrink-0 flex">
+                        <button @click="removeNotification(notification.id)"
+                            class="inline-flex text-gray-400 hover:text-gray-500">
+                            <span class="sr-only">Fechar</span>
+                            <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                <path fill-rule="evenodd"
+                                    d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+                                    clip-rule="evenodd" />
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const { createApp } = Vue;
+        const socket = io();
+
+        createApp({
+            data() {
+                return {
+                    emulators: [],
+                    newEmulator: {
+                        imei: '',
+                        ip: '',
+                        port: '',
+                        startPoint: null,
+                        endPoint: null,
+                        autoRestart: false,
+                        restartDelay: 5000
+                    },
+                    isCreating: false,
+                    error: null,
+                    isConnected: false,
+                    notifications: [],
+                    map: null,
+                    selectionMode: null,
+                    emulatorMaps: new Map(),
+                    markers: new Map(),
+                    routes: new Map()
+                }
+            },
+            methods: {
+                initMap() {
+                    this.map = L.map('map').setView([-23.5505, -46.6333], 13);
+                    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                        attribution: '© OpenStreetMap contributors'
+                    }).addTo(this.map);
+
+                    this.map.on('click', (e) => {
+                        if (this.selectionMode) {
+                            const point = { lat: e.latlng.lat, lng: e.latlng.lng };
+                            if (this.selectionMode === 'start') {
+                                this.newEmulator.startPoint = point;
+                                this.showNotification('Ponto de Partida', 'Ponto de partida selecionado', 'success');
+                            } else {
+                                this.newEmulator.endPoint = point;
+                                this.showNotification('Ponto de Destino', 'Ponto de destino selecionado', 'success');
+                            }
+                            this.selectionMode = null;
+                        }
+                    });
+                },
+
+                initEmulatorMap(emulatorId) {
+                    // Aguarda o próximo ciclo do Vue para garantir que o DOM foi atualizado
+                    this.$nextTick(() => {
+                        const mapContainer = document.getElementById(`map-${emulatorId}`);
+                        if (!mapContainer) {
+                            console.error(`Container do mapa não encontrado para o emulador ${emulatorId}`);
+                            return;
+                        }
+
+                        const map = L.map(`map-${emulatorId}`).setView([-23.5505, -46.6333], 13);
+                        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                            attribution: '© OpenStreetMap contributors'
+                        }).addTo(map);
+                        this.emulatorMaps.set(emulatorId, map);
+
+                        // Adiciona estilo para o marcador personalizado
+                        const style = document.createElement('style');
+                        style.textContent = `
+                            .custom-div-icon {
+                                background: transparent;
+                                border: none;
+                            }
+                            #map-${emulatorId} {
+                                height: 300px;
+                                width: 100%;
+                                border-radius: 4px;
+                            }
+                        `;
+                        document.head.appendChild(style);
+
+                        // Se o emulador já tiver uma posição, atualiza o mapa
+                        const emulator = this.emulators.find(e => e.id === emulatorId);
+                        if (emulator && emulator.currentPosition) {
+                            this.updateEmulatorPosition(emulatorId, emulator.currentPosition);
+                        }
+                    });
+                },
+
+                setSelectionMode(mode) {
+                    this.selectionMode = mode;
+                    this.showNotification(
+                        mode === 'start' ? 'Selecione o Ponto de Partida' : 'Selecione o Ponto de Destino',
+                        'Clique no mapa para selecionar o ponto',
+                        'info'
+                    );
+                },
+
+                updateEmulatorPosition(emulatorId, position) {
+                    const map = this.emulatorMaps.get(emulatorId);
+                    if (!map) {
+                        console.error(`Mapa não encontrado para o emulador ${emulatorId}`);
+                        return;
+                    }
+
+                    // Remove marcador anterior se existir
+                    let marker = this.markers.get(emulatorId);
+                    if (marker) {
+                        map.removeLayer(marker);
+                    }
+
+                    // Cria novo marcador
+                    marker = L.marker([position.lat, position.lng], {
+                        icon: L.divIcon({
+                            className: 'custom-div-icon',
+                            html: '<div style="background-color: #4CAF50; width: 12px; height: 12px; border-radius: 50%; border: 2px solid white;"></div>',
+                            iconSize: [12, 12],
+                            iconAnchor: [6, 6]
+                        })
+                    }).addTo(map);
+
+                    this.markers.set(emulatorId, marker);
+
+                    // Atualiza a rota se houver pontos de partida e destino
+                    const emulator = this.emulators.find(e => e.id === emulatorId);
+                    if (emulator && emulator.config.startPoint && emulator.config.endPoint) {
+                        this.updateRoute(emulatorId, emulator.config.startPoint, emulator.config.endPoint);
+                    }
+
+                    // Atualiza o mapa para mostrar a posição atual
+                    map.setView([position.lat, position.lng], map.getZoom());
+                },
+
+                updateRoute(emulatorId, start, end) {
+                    const map = this.emulatorMaps.get(emulatorId);
+                    if (!map) return;
+
+                    // Remove rota anterior se existir
+                    const route = this.routes.get(emulatorId);
+                    if (route) {
+                        map.removeLayer(route);
+                    }
+
+                    // Cria nova rota
+                    const newRoute = L.polyline([
+                        [start.lat, start.lng],
+                        [end.lat, end.lng]
+                    ], { color: 'blue' }).addTo(map);
+
+                    this.routes.set(emulatorId, newRoute);
+                    
+                    // Ajusta o zoom para mostrar toda a rota
+                    const bounds = newRoute.getBounds();
+                    if (bounds.isValid()) {
+                        map.fitBounds(bounds, { padding: [50, 50] });
+                    }
+                },
+
+                createEmulator() {
+                    this.isCreating = true;
+                    this.error = null;
+                    try {
+                        const config = {
+                            ...this.newEmulator,
+                            startPoint: this.newEmulator.startPoint,
+                            endPoint: this.newEmulator.endPoint
+                        };
+                        socket.emit('create_emulator', config);
+                        this.newEmulator = { 
+                            imei: '', 
+                            ip: '', 
+                            port: '',
+                            startPoint: null,
+                            endPoint: null,
+                            autoRestart: false,
+                            restartDelay: 5000
+                        };
+                    } catch (error) {
+                        this.error = error.message;
+                    } finally {
+                        this.isCreating = false;
+                    }
+                },
+
+                stopEmulator(id) {
+                    socket.emit('stop_emulator', id);
+                },
+
+                restartEmulator(id) {
+                    socket.emit('restart_emulator', id);
+                },
+
+                toggleAutoRestart(id) {
+                    socket.emit('toggle_auto_restart', id);
+                },
+
+                showNotification(title, message, type = 'info') {
+                    const id = Date.now();
+                    this.notifications.push({ id, title, message, type });
+                    setTimeout(() => this.removeNotification(id), 5000);
+                },
+
+                removeNotification(id) {
+                    this.notifications = this.notifications.filter(n => n.id !== id);
+                }
+            },
+            mounted() {
+                this.initMap();
+
+                // Conexão WebSocket
+                socket.on('connect', () => {
+                    this.isConnected = true;
+                    this.showNotification('Conectado', 'Conexão estabelecida com o servidor', 'success');
+                });
+
+                socket.on('disconnect', () => {
+                    this.isConnected = false;
+                    this.showNotification('Desconectado', 'Conexão perdida com o servidor', 'error');
+                });
+
+                // Lista inicial de emuladores
+                socket.on('emulators:list', (data) => {
+                    this.emulators = data.map(emulator => ({
+                        ...emulator,
+                        showLogs: false
+                    }));
+                    // Inicializa mapas para emuladores existentes
+                    this.emulators.forEach(emulator => {
+                        if (emulator.status === 'running') {
+                            this.initEmulatorMap(emulator.id);
+                        }
+                    });
+                });
+
+                // Eventos de emulador
+                socket.on('emulator:created', (data) => {
+                    const newEmulator = {
+                        ...data,
+                        showLogs: false,
+                        logs: []
+                    };
+                    this.emulators.push(newEmulator);
+                    if (newEmulator.status === 'running') {
+                        this.initEmulatorMap(newEmulator.id);
+                    }
+                    this.showNotification('Emulador Criado', `Emulador ${data.config.imei} criado com sucesso`, 'success');
+                });
+
+                socket.on('emulator:status', (data) => {
+                    const emulator = this.emulators.find(e => e.id === data.id);
+                    if (emulator) {
+                        emulator.status = data.status;
+                        if (data.status === 'running') {
+                            this.initEmulatorMap(data.id);
+                        } else if (data.status === 'stopped') {
+                            const map = this.emulatorMaps.get(data.id);
+                            if (map) {
+                                map.remove();
+                                this.emulatorMaps.delete(data.id);
+                            }
+                        }
+                        if (data.status === 'error') {
+                            this.showNotification('Erro no Emulador', data.error || 'Erro desconhecido', 'error');
+                        }
+                    }
+                });
+
+                socket.on('emulator:position', (data) => {
+                    this.updateEmulatorPosition(data.id, data.position);
+                });
+
+                socket.on('emulator:log', (data) => {
+                    const emulator = this.emulators.find(e => e.id === data.id);
+                    if (emulator) {
+                        emulator.logs.push(data.log);
+                        if (emulator.logs.length > 100) {
+                            emulator.logs.shift();
+                        }
+                    }
+                });
+
+                socket.on('emulator:error', (data) => {
+                    this.showNotification('Erro', data.error, 'error');
+                });
+
+                socket.on('emulator:command', (data) => {
+                    if (!data.success) {
+                        this.showNotification('Erro no Comando', data.error || 'Falha ao executar comando', 'error');
+                    }
+                });
+            },
+            beforeUnmount() {
+                // Limpa todos os mapas
+                this.emulatorMaps.forEach(map => map.remove());
+                this.emulatorMaps.clear();
+                
+                socket.off('connect');
+                socket.off('disconnect');
+                socket.off('emulators:list');
+                socket.off('emulator:created');
+                socket.off('emulator:status');
+                socket.off('emulator:position');
+                socket.off('emulator:log');
+                socket.off('emulator:error');
+                socket.off('emulator:command');
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html> 

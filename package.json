@@ -1,16 +1,20 @@
 {
-  "name": "bots",
+  "name": "node-gps103-emulator",
   "version": "1.0.0",
-  "description": "",
-  "main": "tk_sogil.js",
+  "description": "Emulador de GPS para protocolo GPS103",
+  "main": "src/index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js"
   },
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "axios": "^0.26.0",
-    "lodash": "^4.17.21",
-    "minimist": "^1.2.5"
+    "@mapbox/polyline": "^1.1.1",
+    "axios": "^1.6.7",
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.3"
   }
 }

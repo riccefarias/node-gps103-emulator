@@ -1,29 +1,67 @@
-Para usar este emulador, instale o docker em sua VPS.
-````
-apt install docker.io
-````
+# Node GPS103 Emulator
 
-Baixe os arquivos para uma pasta em sua VPS.
+Emulador de GPS para o protocolo GPS103, desenvolvido em Node.js.
 
+## Funcionalidades
 
-Execute o seguinte comando:
-````
-docker build . --tag=emulador-103
-````
+- Geração de rotas aleatórias em terra
+- Simulação de movimento de veículo
+- Suporte a comandos de controle (bloqueio, desbloqueio, ligar/desligar motor)
+- Comunicação via TCP
+- Emulação de dados de bateria e satélites
 
-Aguarde a conclusão da Build
+## Requisitos
 
+- Node.js 14+
+- NPM ou Yarn
 
+## Instalação
 
-Para iniciar um emulador execute o seguinte comando:
-````
-docker run -it -e linha=XXXX -e ip=IPDOSERVIDOR -e port=5001 emulador-103
-````
+1. Clone o repositório:
+```bash
+git clone https://github.com/riccefarias/node-gps103-emulator.git
+cd node-gps103-emulator
+```
 
-O imei do dispositivo será: KOREXXXX
+2. Instale as dependências:
+```bash
+npm install
+```
 
-Onde XXXX é o numero da linha a ser replicado
+## Uso
 
+Para iniciar o emulador:
 
+```bash
+npm start
+```
+
+Para desenvolvimento com auto-reload:
+
+```bash
+npm run dev
+```
+
+## Estrutura do Projeto
+
+```
+src/
+  ├── config/         # Configurações e variáveis de ambiente
+  ├── services/       # Serviços principais (TCP, Roteamento)
+  ├── utils/          # Funções utilitárias
+  └── index.js        # Ponto de entrada da aplicação
+```
+
+## Comandos Suportados
+
+- `LOAD`: Inicia o envio de dados
+- `**J`: Bloqueia o veículo
+- `**K`: Desbloqueia o veículo
+- `**I`: Desliga o motor
+- `**E`: Liga o motor
+
+## Licença
+
+ISC
 
 Doações serão bem vindas através do PIX: angelo@kore.ag
